@@ -2,13 +2,14 @@ from flask import Flask, render_template, request, redirect, url_for ,jsonify
 from flask_pymongo import PyMongo
 from bson import ObjectId
 from datetime import datetime, timedelta
-from pymongo.mongo_client import MongoClient
-from pymongo.server_api import ServerApi
+from flask_cors import CORS
+
 
 
 app = Flask(__name__,template_folder="templates")
-app.config["MONGO_URI"] = "mongodb+srv://dbuser:daksh@cluster0.um4ktsm.mongodb.net/temp?retryWrites=true&w=majority"
+CORS(app,origins="*")
 
+app.config["MONGO_URI"] = "mongodb://localhost:27017/todo"
 mongo = PyMongo(app)
 
 
@@ -23,56 +24,48 @@ def serialize_task(task):
     return task
 
 
-# Route to create a new task
-@app.route("/task",methods=["POST"])
+@app.route("/task", methods=["POST"])
 def create_task():
-    data = request.json
-    if not data:
-        return jsonify({'error': 'No JSON data provided'}), 400
-    
-    name = data.get('name')
-    status = data.get('status')
-    priority = data.get('priority')
-    due_date = data.get('due_date')
+    try:
+        data = request.json
+        if not data:
+            return jsonify({'error': 'No JSON data provided'}), 400
 
-    if name or status or priority or due_date:
-        task = {
-            'name':name,
-            'status':status,
-            'priority': priority,
-            'due_date': datetime.strptime(due_date,'%Y-%m-%d %H:%M:%S')
-        }
-        task_id = mongo.db.tasks.insert_one(task).inserted_id
-        return jsonify({'message':'Task created successfully','task_id':str(task_id)}),201
-    else:
-        return jsonify({'error': 'Incomplete data provided'}), 400
+        id = data.get("_id")
+        name = data.get('name')
+        status = data.get('status')
+        priority = data.get('priority')
+        due_date = data.get('due_date')
+
+        if name or status or priority or due_date:
+            task = {
+                'name': name,
+                'status': status,
+                'priority': priority,
+                'due_date': due_date
+            }
+
+            if not id:
+                task_id = mongo.db.tasks.insert_one(task).inserted_id
+                return jsonify({'message': 'Task created successfully', 'task_id': str(task_id)}), 201
+            else:
+                update_task(id, task)
+                return jsonify({'message': 'Task updated successfully'}), 200
+        else:
+            return jsonify({'error': 'Incomplete data provided'}), 400
+
+    except Exception as e:
+        return jsonify({'error': 'An error occurred', 'message': str(e)}), 500
 
 
-# Route to update an existing task
-@app.route('/task/<string:task_id>', methods=['PUT'])
-def update_task(task_id):
-    data = request.json
-    name = data.get('name')
-    status = data.get('status')
-    priority = data.get('priority')
-    due_date = data.get('due_date')
+def update_task(task_id, update_data):
+    try:
+        mongo.db.tasks.update_one({'_id': ObjectId(task_id)}, {'$set': update_data})
+        return jsonify({'message': 'Task updated successfully', 'task_id': str(task_id)}), 201
 
-    if name or status or priority or due_date:
-        update_data = {}
-        if name:
-            update_data['name'] = name
-        if status:
-            update_data['status'] = status
-        if priority:
-            update_data['priority'] = priority
-        if due_date:
-            update_data['due_date'] = datetime.strptime(due_date, '%Y-%m-%d %H:%M:%S')
+    except Exception as e:
+        raise Exception('Error updating task: {}'.format(str(e)))
 
-        mongo.db.tasks.update_one({'_id': ObjectId(task_id)},{'$set':update_data})
-        return jsonify({'message': 'Task updated successfully'}), 200
-    else:
-        return jsonify({'error': 'No data provided for update'}), 400
-    
 
 # Route to delete a task
 @app.route('/task/<string:task_id>', methods=['DELETE'])
